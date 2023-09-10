@@ -66,6 +66,15 @@ public final class ManagedMLModel: ResourceManaging {
         }
     }
 
+    public func loadModelWithCPU() throws {
+        if loadedModel == nil {
+            configuration.computeUnits = .cpuOnly
+            loadedModel = try MLModel(contentsOf: modelURL,
+                                      configuration: configuration)
+            configuration.computeUnits = .cpuAndNeuralEngine
+        }
+    }
+
     private func loadModel() throws {
         if loadedModel == nil {
             loadedModel = try MLModel(contentsOf: modelURL,

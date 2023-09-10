@@ -182,6 +182,10 @@ public struct StableDiffusionPipeline: StableDiffusionPipelineProtocol {
         safetyChecker?.unloadResources()
     }
 
+    public func unloadUnetResources() {
+        unet.unloadResources()
+    }
+
     // Prewarm resources one at a time
     public func prewarmResources() throws {
         try textEncoder.prewarmResources()
@@ -228,7 +232,12 @@ public struct StableDiffusionPipeline: StableDiffusionPipelineProtocol {
             }
         }
 
+        try? unet.preloadResources()
         // Generate random latent samples from specified seed
+        //executeWithTimeout(timeout: 8, retry: true) {
+            try? unet.prewarmResources()
+            //return true
+        //}
         var latents: [MLShapedArray<Float32>] = try generateLatentSamples(configuration: config, scheduler: scheduler[0])
 
         // Store denoised latents from scheduler to pass into decoder
@@ -265,9 +274,26 @@ public struct StableDiffusionPipeline: StableDiffusionPipelineProtocol {
                 hiddenStates: hiddenStates,
                 images: controlNetConds
             )
-            
+
+            try? unet.unloadResources()
+            try? unet.prewarmResources()
             // Predict noise residuals from latent samples
             // and current time step conditioned on hidden states
+            while true {
+                let memoryInfo = getSystemMemoryInfo()
+                print("service=diffusion avaible=\(memoryInfo)")
+                if memoryInfo > 100.0 {
+                    break // 跳出循环，继续执行后面的代码
+                }
+                
+                // 等待1秒再次检查
+                Thread.sleep(forTimeInterval: 1.0)
+            }
+            //let memoryInfo = getSystemMemoryInfo()
+            //print("service=diffusion avaible=\(memoryInfo)")
+            /*if memoryInfo < 100.0 {
+                unet.unloadResources()
+            }*/
             var noise = try unet.predictNoise(
                 latents: latentUnetInput,
                 timeStep: t,
@@ -315,6 +341,71 @@ public struct StableDiffusionPipeline: StableDiffusionPipelineProtocol {
         return try decodeToImages(denoisedLatents, configuration: config)
     }
 
+    func executeWithTimeout(timeout: TimeInterval, retry: Bool, block: @escaping(() -> Bool)) {
+        let semaphore = DispatchSemaphore(value: 0)
+        var success = false
+        
+        DispatchQueue.global().async {
+            success = block()
+            semaphore.signal()
+        }
+        
+        if semaphore.wait(timeout: .now() + timeout) == .timedOut {
+            print("Operation timed out")
+            if retry {
+                print("Retrying...")
+                executeWithTimeout(timeout: timeout, retry: retry, block: block)
+            }
+        } else {
+            if success {
+                print("Operation succeeded")
+            } else {
+                print("Operation failed")
+                if retry {
+                    print("Retrying...")
+                    executeWithTimeout(timeout: timeout, retry: retry, block: block)
+                }
+            }
+        }
+    }
+
+    func getSystemMemoryInfo() -> Double {
+        var totalMemory: UInt64 = 0
+        var freeMemory: vm_size_t = 0
+        
+        // 获取总内存大小
+        var mib: [Int32] = [CTL_HW, HW_MEMSIZE]
+        var length = MemoryLayout<UInt64>.size
+        sysctl(&mib, 2, &totalMemory, &length, nil, 0)
+        
+        // 获取可用内存大小
+        var page_size: vm_size_t = 0
+        var vm_stats = vm_statistics64()
+        var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64>.size / MemoryLayout<integer_t>.size)
+        host_page_size(mach_host_self(), &page_size)
+        
+        withUnsafeMutablePointer(to: &vm_stats) { (vmStatsPointer) in
+            _ = withUnsafeMutablePointer(to: &count) { (countPointer) in
+                vmStatsPointer.withMemoryRebound(to: integer_t.self, capacity: 1) { reboundPointer in
+                    host_statistics64(
+                        mach_host_self(),
+                        HOST_VM_INFO,
+                        reboundPointer,
+                        countPointer
+                    )
+                }
+            }
+        }
+        
+        freeMemory = vm_size_t(vm_stats.free_count) * page_size
+
+        // 转换为MB
+        let totalMemoryMB = Double(totalMemory) / 1024 / 1024
+        let freeMemoryMB = Double(freeMemory) / 1024 / 1024
+        
+        return freeMemoryMB
+    }
+
     func generateLatentSamples(configuration config: Configuration, scheduler: Scheduler) throws -> [MLShapedArray<Float32>] {
         var sampleShape = unet.latentSampleShape
         sampleShape[0] = 1
@@ -336,6 +427,7 @@ public struct StableDiffusionPipeline: StableDiffusionPipelineProtocol {
     }
 
     public func decodeToImages(_ latents: [MLShapedArray<Float32>], configuration config: Configuration) throws -> [CGImage?] {
+        try? unet.unloadResources()
         let images = try decoder.decode(latents, scaleFactor: config.decoderScaleFactor)
         if reduceMemory {
             decoder.unloadResources()

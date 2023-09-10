@@ -132,11 +132,12 @@ public extension StableDiffusionPipeline {
         
         // Optional Image Encoder
         let encoder: Encoder?
-        if FileManager.default.fileExists(atPath: urls.encoderURL.path) {
+        encoder = nil
+        /*if FileManager.default.fileExists(atPath: urls.encoderURL.path) {
             encoder = Encoder(modelAt: urls.encoderURL, configuration: config)
         } else {
             encoder = nil
-        }
+        }*/
 
         // Construct pipeline
         if #available(macOS 14.0, iOS 17.0, *) {

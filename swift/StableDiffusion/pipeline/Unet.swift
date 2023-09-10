@@ -35,6 +35,13 @@ public struct Unet: ResourceManaging {
         self.models = urls.map { ManagedMLModel(modelAt: $0, configuration: configuration) }
     }
 
+    /// Unload the underlying model to free up memory
+    public func preloadResources() throws {
+        for model in models {
+            try model.loadModelWithCPU()
+        }
+    }
+
     /// Load resources.
     public func loadResources() throws {
         for model in models {
