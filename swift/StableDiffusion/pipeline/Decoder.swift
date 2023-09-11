@@ -31,6 +31,11 @@ public struct Decoder: ResourceManaging {
        model.unloadResources()
     }
 
+    /// Unload the underlying model to free up memory
+    public func preloadResources() throws {
+        try model.loadModelWithCPU()
+    }
+
     /// Batch decode latent samples into images
     ///
     ///  - Parameters:

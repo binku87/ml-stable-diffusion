@@ -44,6 +44,8 @@ public struct PipelineConfiguration: Hashable {
     public var encoderScaleFactor: Float32 = 0.18215
     /// Scale factor to use on the latent before decoding
     public var decoderScaleFactor: Float32 = 0.18215
+    /// Is Debug
+    public var isDebug: Bool = false
     
     /// Given the configuration, what mode will be used for generation
     public var mode: PipelineMode {

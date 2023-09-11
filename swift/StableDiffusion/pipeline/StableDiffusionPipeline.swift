@@ -232,13 +232,22 @@ public struct StableDiffusionPipeline: StableDiffusionPipelineProtocol {
             }
         }
 
+        var t = Date()
+        /*print("service=diffusion action=preload_model start=\(t)")
         try? unet.preloadResources()
+        unet.unloadResources()
+        try? decoder.preloadResources()
+        decoder.unloadResources()
+        print("service=diffusion action=preload_model t=\(Date().timeIntervalSince(t))")*/
         // Generate random latent samples from specified seed
         //executeWithTimeout(timeout: 8, retry: true) {
-            try? unet.prewarmResources()
             //return true
         //}
+        
+        t = Date()
+        print("service=diffusion action=generateLatentSamples start=\(t)")
         var latents: [MLShapedArray<Float32>] = try generateLatentSamples(configuration: config, scheduler: scheduler[0])
+        print("service=diffusion action=generateLatentSamples t=\(Date().timeIntervalSince(t))")
 
         // Store denoised latents from scheduler to pass into decoder
         var denoisedLatents: [MLShapedArray<Float32>] = latents.map { MLShapedArray(converting: $0) }
@@ -275,32 +284,27 @@ public struct StableDiffusionPipeline: StableDiffusionPipelineProtocol {
                 images: controlNetConds
             )
 
+            var tt = Date()
             try? unet.unloadResources()
-            try? unet.prewarmResources()
+            print("service=diffusion action=prewarmResources step=\(step)")
+            /*if config.isDebug {
+                try? unet.preloadResources()
+            } else {
+                try? unet.prewarmResources()
+            }*/
+            print("service=diffusion action=prewarmResources t=\(Date().timeIntervalSince(tt))")
             // Predict noise residuals from latent samples
             // and current time step conditioned on hidden states
-            while true {
-                let memoryInfo = getSystemMemoryInfo()
-                print("service=diffusion avaible=\(memoryInfo)")
-                if memoryInfo > 100.0 {
-                    break // 跳出循环，继续执行后面的代码
-                }
-                
-                // 等待1秒再次检查
-                Thread.sleep(forTimeInterval: 1.0)
-            }
-            //let memoryInfo = getSystemMemoryInfo()
-            //print("service=diffusion avaible=\(memoryInfo)")
-            /*if memoryInfo < 100.0 {
-                unet.unloadResources()
-            }*/
+            tt = Date()
+            print("service=diffusion action=predictNoise step=\(step)")
             var noise = try unet.predictNoise(
                 latents: latentUnetInput,
                 timeStep: t,
                 hiddenStates: hiddenStates,
                 additionalResiduals: additionalResiduals
             )
-
+            print("service=diffusion action=predictNoise t=\(Date().timeIntervalSince(tt))")
+            tt = Date()
             noise = performGuidance(noise, config.guidanceScale)
 
             // Have the scheduler compute the previous (t-1) latent
@@ -326,6 +330,7 @@ public struct StableDiffusionPipeline: StableDiffusionPipelineProtocol {
                 currentLatentSamples: currentLatentSamples,
                 configuration: config
             )
+            print("service=diffusion action=progressHandler t=\(Date().timeIntervalSince(tt))")
             if !progressHandler(progress) {
                 // Stop if requested by handler
                 return []
@@ -400,13 +405,15 @@ public struct StableDiffusionPipeline: StableDiffusionPipelineProtocol {
         freeMemory = vm_size_t(vm_stats.free_count) * page_size
 
         // 转换为MB
-        let totalMemoryMB = Double(totalMemory) / 1024 / 1024
         let freeMemoryMB = Double(freeMemory) / 1024 / 1024
         
         return freeMemoryMB
     }
 
     func generateLatentSamples(configuration config: Configuration, scheduler: Scheduler) throws -> [MLShapedArray<Float32>] {
+        /*if config.isDebug {
+            try? unet.preloadResources()
+        }*/
         var sampleShape = unet.latentSampleShape
         sampleShape[0] = 1
         
@@ -427,8 +434,11 @@ public struct StableDiffusionPipeline: StableDiffusionPipelineProtocol {
     }
 
     public func decodeToImages(_ latents: [MLShapedArray<Float32>], configuration config: Configuration) throws -> [CGImage?] {
-        try? unet.unloadResources()
+        unet.unloadResources()
+        let t = Date()
+        print("service=diffusion action=decodeToImages")
         let images = try decoder.decode(latents, scaleFactor: config.decoderScaleFactor)
+        print("service=diffusion action=decodeToImages t=\(Date().timeIntervalSince(t))")
         if reduceMemory {
             decoder.unloadResources()
         }

@@ -35,6 +35,10 @@ public struct Encoder: ResourceManaging {
        model.unloadResources()
     }
     
+    public func preloadResources() throws {
+        try model.loadModelWithCPU()
+    }
+    
     /// Prediction queue
     let queue = DispatchQueue(label: "encoder.predict")
 
