@@ -330,7 +330,6 @@ public struct StableDiffusionPipeline: StableDiffusionPipelineProtocol {
                 currentLatentSamples: currentLatentSamples,
                 configuration: config
             )
-            print("service=diffusion action=progressHandler t=\(Date().timeIntervalSince(tt))")
             if !progressHandler(progress) {
                 // Stop if requested by handler
                 return []
